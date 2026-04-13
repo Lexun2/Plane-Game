@@ -77,8 +77,8 @@
             font-family: Arial, sans-serif;
             font-style: italic;
             font-weight: 900;
-            font-size: 72px;
-            letter-spacing: 6px;
+            font-size: clamp(28px, 13vw, 72px);
+            letter-spacing: clamp(1px, 1.2vw, 6px);
             text-transform: uppercase;
             background: linear-gradient(180deg, #ffcc00 0%, #ff6600 40%, #cc0000 100%);
             -webkit-background-clip: text;
@@ -188,90 +188,85 @@
         }
 
         /* Mobile touch controls */
-        /* Mobile joystick + fire button */
+        /* Mobile joystick + fire button — below canvas, never overlapping */
+        #mobileWrapper {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+        }
         #touchControls {
             display: none;
-            position: absolute;
-            bottom: 12px;
-            left: 0; right: 0;
-            height: 130px;
+            position: relative;
+            width: 100%;
+            height: 70px;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 8px;
             pointer-events: none;
-            z-index: 20;
         }
-        #touchControls.visible { display: block; }
+        #touchControls.visible { display: flex; }
 
         /* Joystick */
         #joystickZone {
-            position: absolute;
-            left: 10px; bottom: 0;
-            width: 130px; height: 130px;
+            position: relative;
+            width: 65px; height: 65px;
             pointer-events: all;
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
+            flex-shrink: 0;
         }
         #joystickBase {
             position: absolute;
             left: 0; top: 0;
-            width: 130px; height: 130px;
+            width: 65px; height: 65px;
             border-radius: 50%;
-            background: rgba(255,255,255,0.07);
-            border: 2px solid rgba(255,255,255,0.2);
+            background: rgba(180,180,180,0.12);
+            border: 1.5px solid rgba(200,200,200,0.3);
         }
         #joystickKnob {
             position: absolute;
-            width: 54px; height: 54px;
+            width: 27px; height: 27px;
             border-radius: 50%;
-            background: rgba(233, 69, 96, 0.7);
-            border: 2px solid rgba(233, 69, 96, 1);
-            box-shadow: 0 0 14px rgba(233,69,96,0.6);
-            left: 38px; top: 38px;
-            transition: background 0.1s;
+            background: rgba(200,200,200,0.45);
+            border: 1.5px solid rgba(220,220,220,0.6);
+            left: 19px; top: 19px;
             pointer-events: none;
         }
 
         /* Fire button */
         #fireBtn {
-            position: absolute;
-            right: 18px; bottom: 15px;
-            width: 90px; height: 90px;
+            width: 50px; height: 50px;
             border-radius: 50%;
-            background: rgba(233, 69, 96, 0.3);
-            border: 3px solid rgba(233, 69, 96, 0.85);
-            box-shadow: 0 0 18px rgba(233,69,96,0.4);
+            background: rgba(180,180,180,0.18);
+            border: 1.5px solid rgba(200,200,200,0.4);
             display: flex; justify-content: center; align-items: center;
-            font-size: 36px;
-            color: rgba(255,255,255,0.9);
+            font-size: 20px;
+            color: rgba(255,255,255,0.7);
             user-select: none;
             pointer-events: all;
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
-            transition: background 0.1s, box-shadow 0.1s;
+            transition: background 0.1s;
+            flex-shrink: 0;
         }
         #fireBtn.pressed {
-            background: rgba(233, 69, 96, 0.75);
-            box-shadow: 0 0 30px rgba(233,69,96,0.85);
+            background: rgba(200,200,200,0.4);
         }
 
         @media (pointer: coarse) {
-            #touchControls { display: block; }
+            canvas { max-height: calc(100vh - 80px); }
             .controls-info { display: none; }
         }
     </style>
 </head>
 <body>
+    <div id="mobileWrapper">
     <div id="gameContainer">
         <canvas id="gameCanvas" width="480" height="700"></canvas>
         <div id="ui" class="hidden">
             <span id="scoreDisplay">Очки: 0</span>
             <span id="livesDisplay">Жизни: ❤❤❤</span>
-        </div>
-
-        <div id="touchControls">
-            <div id="joystickZone">
-                <div id="joystickBase"></div>
-                <div id="joystickKnob"></div>
-            </div>
-            <div id="fireBtn">&#128293;</div>
         </div>
 
         <div id="mainMenu" class="screen">
@@ -1967,13 +1962,13 @@ let levelFsmBossSpawned = false;
             const joystickZone = document.getElementById('joystickZone');
             const knob = document.getElementById('joystickKnob');
             const fireBtn = document.getElementById('fireBtn');
-            const BASE_RADIUS = 65;   // half of joystickBase 130px
-            const KNOB_RADIUS = 27;   // half of knob 54px
-            const DEAD_ZONE = 12;     // px threshold before registering direction
+            const BASE_RADIUS = 32;   // half of joystickBase 65px
+            const KNOB_RADIUS = 13;   // half of knob 27px
+            const DEAD_ZONE = 6;      // px threshold before registering direction
 
             let joystickActive = false;
-            let joystickOriginX = BASE_RADIUS;
-            let joystickOriginY = BASE_RADIUS;
+            let joystickOriginX = 32;
+            let joystickOriginY = 32;
             let joystickTouchId = null;
 
             function resetKnob() {
@@ -2171,5 +2166,15 @@ let levelFsmBossSpawned = false;
                 <button class="btn btn-secondary" id="btnLeaderboardClose" style="width:100%; margin-top:10px;" onclick="goToMainMenuFromLeaderboard()">Закрыть</button>
             </div>
         </div>
+    </div><!-- /#gameContainer -->
+
+    <div id="touchControls">
+        <div id="joystickZone">
+            <div id="joystickBase"></div>
+            <div id="joystickKnob"></div>
+        </div>
+        <div id="fireBtn">&#128293;</div>
+    </div>
+    </div><!-- /#mobileWrapper -->
 </body>
 </html>
