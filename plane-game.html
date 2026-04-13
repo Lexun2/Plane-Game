@@ -2265,6 +2265,8 @@ let levelFsmBossSpawned = false;
         document.addEventListener('keyup', e => keys[e.code] = false);
 
         // === MOBILE CONTROLS: Joystick + Fire button ===
+        // Wrapped in DOMContentLoaded because #joystickZone is declared after this <script> tag
+        document.addEventListener('DOMContentLoaded', function() {
         (function() {
             const joystickZone = document.getElementById('joystickZone');
             const knob = document.getElementById('joystickKnob');
@@ -2352,6 +2354,7 @@ let levelFsmBossSpawned = false;
                 fireBtn.classList.remove('pressed');
             });
         })();
+        }); // end DOMContentLoaded for touch controls
 
         // Show/hide touch controls — only on touch devices and only during active gameplay
         const _isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
