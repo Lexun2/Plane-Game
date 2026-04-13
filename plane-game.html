@@ -188,43 +188,72 @@
         }
 
         /* Mobile touch controls */
+        /* Mobile joystick + fire button */
         #touchControls {
             display: none;
             position: absolute;
-            bottom: 10px;
+            bottom: 12px;
             left: 0; right: 0;
-            justify-content: space-between;
-            align-items: flex-end;
-            padding: 0 10px;
+            height: 130px;
+            pointer-events: none;
             z-index: 20;
+        }
+        #touchControls.visible { display: block; }
+
+        /* Joystick */
+        #joystickZone {
+            position: absolute;
+            left: 10px; bottom: 0;
+            width: 130px; height: 130px;
+            pointer-events: all;
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #joystickBase {
+            position: absolute;
+            left: 0; top: 0;
+            width: 130px; height: 130px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.07);
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+        #joystickKnob {
+            position: absolute;
+            width: 54px; height: 54px;
+            border-radius: 50%;
+            background: rgba(233, 69, 96, 0.7);
+            border: 2px solid rgba(233, 69, 96, 1);
+            box-shadow: 0 0 14px rgba(233,69,96,0.6);
+            left: 38px; top: 38px;
+            transition: background 0.1s;
             pointer-events: none;
         }
-        #touchControls.visible { display: flex; }
-        .touch-btn {
-            width: 80px; height: 80px;
-            background: rgba(233, 69, 96, 0.25);
-            border: 2px solid rgba(233, 69, 96, 0.6);
+
+        /* Fire button */
+        #fireBtn {
+            position: absolute;
+            right: 18px; bottom: 15px;
+            width: 90px; height: 90px;
             border-radius: 50%;
+            background: rgba(233, 69, 96, 0.3);
+            border: 3px solid rgba(233, 69, 96, 0.85);
+            box-shadow: 0 0 18px rgba(233,69,96,0.4);
             display: flex; justify-content: center; align-items: center;
-            font-size: 32px;
-            color: rgba(255,255,255,0.85);
+            font-size: 36px;
+            color: rgba(255,255,255,0.9);
             user-select: none;
             pointer-events: all;
             touch-action: none;
-            transition: background 0.1s;
             -webkit-tap-highlight-color: transparent;
+            transition: background 0.1s, box-shadow 0.1s;
         }
-        .touch-btn:active, .touch-btn.pressed {
-            background: rgba(233, 69, 96, 0.6);
+        #fireBtn.pressed {
+            background: rgba(233, 69, 96, 0.75);
+            box-shadow: 0 0 30px rgba(233,69,96,0.85);
         }
-        #touchFire {
-            width: 90px; height: 90px;
-            background: rgba(233, 69, 96, 0.35);
-            border-color: rgba(233, 69, 96, 0.9);
-            font-size: 36px;
-        }
+
         @media (pointer: coarse) {
-            #touchControls { display: flex; }
+            #touchControls { display: block; }
             .controls-info { display: none; }
         }
     </style>
@@ -238,9 +267,11 @@
         </div>
 
         <div id="touchControls">
-            <div class="touch-btn" id="touchLeft">&#8592;</div>
-            <div class="touch-btn" id="touchFire">&#128293;</div>
-            <div class="touch-btn" id="touchRight">&#8594;</div>
+            <div id="joystickZone">
+                <div id="joystickBase"></div>
+                <div id="joystickKnob"></div>
+            </div>
+            <div id="fireBtn">&#128293;</div>
         </div>
 
         <div id="mainMenu" class="screen">
@@ -1931,17 +1962,94 @@ let levelFsmBossSpawned = false;
         });
         document.addEventListener('keyup', e => keys[e.code] = false);
 
-        // Touch controls for mobile
-        function bindTouchBtn(id, keyCode) {
-            const btn = document.getElementById(id);
-            if (!btn) return;
-            btn.addEventListener('touchstart', e => { e.preventDefault(); keys[keyCode] = true; btn.classList.add('pressed'); }, { passive: false });
-            btn.addEventListener('touchend', e => { e.preventDefault(); keys[keyCode] = false; btn.classList.remove('pressed'); }, { passive: false });
-            btn.addEventListener('touchcancel', e => { keys[keyCode] = false; btn.classList.remove('pressed'); });
-        }
-        bindTouchBtn('touchLeft', 'ArrowLeft');
-        bindTouchBtn('touchRight', 'ArrowRight');
-        bindTouchBtn('touchFire', 'Space');
+        // === MOBILE CONTROLS: Joystick + Fire button ===
+        (function() {
+            const joystickZone = document.getElementById('joystickZone');
+            const knob = document.getElementById('joystickKnob');
+            const fireBtn = document.getElementById('fireBtn');
+            const BASE_RADIUS = 65;   // half of joystickBase 130px
+            const KNOB_RADIUS = 27;   // half of knob 54px
+            const DEAD_ZONE = 12;     // px threshold before registering direction
+
+            let joystickActive = false;
+            let joystickOriginX = BASE_RADIUS;
+            let joystickOriginY = BASE_RADIUS;
+            let joystickTouchId = null;
+
+            function resetKnob() {
+                knob.style.left = (BASE_RADIUS - KNOB_RADIUS) + 'px';
+                knob.style.top  = (BASE_RADIUS - KNOB_RADIUS) + 'px';
+                keys['ArrowLeft']  = false;
+                keys['ArrowRight'] = false;
+            }
+
+            joystickZone.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                if (joystickActive) return;
+                const t = e.changedTouches[0];
+                joystickTouchId = t.identifier;
+                joystickActive = true;
+                const rect = joystickZone.getBoundingClientRect();
+                joystickOriginX = t.clientX - rect.left;
+                joystickOriginY = t.clientY - rect.top;
+                knob.style.left = (joystickOriginX - KNOB_RADIUS) + 'px';
+                knob.style.top  = (joystickOriginY - KNOB_RADIUS) + 'px';
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+                if (!joystickActive) return;
+                let t = null;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joystickTouchId) {
+                        t = e.changedTouches[i]; break;
+                    }
+                }
+                if (!t) return;
+                const rect = joystickZone.getBoundingClientRect();
+                let dx = (t.clientX - rect.left) - joystickOriginX;
+                let dy = (t.clientY - rect.top)  - joystickOriginY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > BASE_RADIUS) {
+                    dx = dx / dist * BASE_RADIUS;
+                    dy = dy / dist * BASE_RADIUS;
+                }
+                knob.style.left = (joystickOriginX + dx - KNOB_RADIUS) + 'px';
+                knob.style.top  = (joystickOriginY + dy - KNOB_RADIUS) + 'px';
+                keys['ArrowLeft']  = dx < -DEAD_ZONE;
+                keys['ArrowRight'] = dx >  DEAD_ZONE;
+            }, { passive: false });
+
+            function joystickEnd(e) {
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joystickTouchId) {
+                        joystickActive = false;
+                        joystickTouchId = null;
+                        resetKnob();
+                        break;
+                    }
+                }
+            }
+            joystickZone.addEventListener('touchend',    joystickEnd, { passive: false });
+            joystickZone.addEventListener('touchcancel', joystickEnd, { passive: false });
+
+            // Fire button — tap = one shot, hold = continuous
+            fireBtn.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                keys['Space'] = true;
+                fireBtn.classList.add('pressed');
+            }, { passive: false });
+            fireBtn.addEventListener('touchend', function(e) {
+                e.preventDefault();
+                keys['Space'] = false;
+                fireBtn.classList.remove('pressed');
+            }, { passive: false });
+            fireBtn.addEventListener('touchcancel', function(e) {
+                keys['Space'] = false;
+                fireBtn.classList.remove('pressed');
+            });
+        })();
 
         // Show/hide touch controls based on game state
         function updateTouchControls() {
@@ -1953,11 +2061,6 @@ let levelFsmBossSpawned = false;
                 tc.classList.remove('visible');
             }
         }
-        // Patch start/pause/resume to update touch controls
-        const _origStartGame = startGame;
-        const _origPauseGame = pauseGame;
-        const _origResumeGame = resumeGame;
-        // We can't reassign const functions easily, so use an observer
         setInterval(updateTouchControls, 200);
 
         document.getElementById('btnPlay').addEventListener('click', function() {
