@@ -729,6 +729,12 @@ let levelFsmBossSpawned = false;
             stopBossBgm();
             if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
             playBossExplosionSound();
+            // Clear all projectiles, player becomes invincible for the whole death animation
+            bossBombs = [];
+            enemyBullets = [];
+            bullets = [];
+            activeBombExplosions = [];
+            player.invincible = 9999; // stays invincible until game continues
         }
 
         function updateBossDying() {
@@ -1395,10 +1401,11 @@ let levelFsmBossSpawned = false;
             const variant = Math.floor(Math.random() * types.length);
             const t = types[variant];
             let sm = dp.speedMult * (1 + score / 200);
-            if (gameLevel === 2) {
+            if (gameLevel >= 2) {
                 sm *= 0.5;
                 if (variant === 2) sm *= 0.7;
             }
+            if (gameLevel === 3) sm *= 0.7; // level 3: additional -30% speed
             let wobbleAmp = 1.5 * t.wobbleMult;
             if (gameLevel >= 3) wobbleAmp = 0;
             const visualH = 50 * sizeMult;
@@ -2080,6 +2087,7 @@ let levelFsmBossSpawned = false;
             const dp = getDiffParams();
             let sr = Math.max(15, dp.spawnRate - score / 15);
             if (gameLevel === 2) sr *= 2;
+            if (gameLevel === 3) sr *= 2.86; // level 3: spawn ~30% fewer enemies (1/0.35 ≈ 2.86)
             if (enemySpawnFrameCount % Math.floor(sr) === 0) spawnEnemy();
             if (enemySpawnFrameCount % 600 === 0) spawnPowerup();
         }
@@ -2479,6 +2487,69 @@ let levelFsmBossSpawned = false;
             }
         }
         
+
+        // ── Easter egg: triple-click / triple-tap on boss → instant kill ──
+        (function() {
+            let _eggClicks = 0;
+            let _eggTimer = null;
+
+            function _getCanvasPoint(clientX, clientY) {
+                const rect = canvas.getBoundingClientRect();
+                // canvas may be CSS-scaled, so map client coords to internal canvas coords
+                const scaleX = canvas.width  / rect.width;
+                const scaleY = canvas.height / rect.height;
+                return {
+                    x: (clientX - rect.left) * scaleX,
+                    y: (clientY - rect.top)  * scaleY
+                };
+            }
+
+            function _checkBossHit(cx, cy) {
+                if (!boss || boss.dying || !gameRunning || gamePaused) return false;
+                return (
+                    Math.abs(cx - boss.x) < boss.width  * 0.55 &&
+                    Math.abs(cy - boss.y) < boss.height * 0.55
+                );
+            }
+
+            function _registerHit(cx, cy) {
+                if (!_checkBossHit(cx, cy)) { _eggClicks = 0; return; }
+                _eggClicks++;
+                if (_eggTimer) clearTimeout(_eggTimer);
+                if (_eggClicks >= 3) {
+                    _eggClicks = 0;
+                    // Kill boss instantly with extra flair
+                    for (let i = 0; i < 6; i++) {
+                        setTimeout(() => {
+                            if (boss) {
+                                createBigExplosion(
+                                    boss.x + (Math.random()-0.5) * (boss.width  || 80),
+                                    boss.y + (Math.random()-0.5) * (boss.height || 80),
+                                    25 + Math.random() * 20
+                                );
+                            }
+                        }, i * 80);
+                    }
+                    setTimeout(() => killBoss(), 100);
+                } else {
+                    _eggTimer = setTimeout(() => { _eggClicks = 0; }, 600);
+                }
+            }
+
+            // Mouse clicks (PC)
+            canvas.addEventListener('click', e => {
+                const p = _getCanvasPoint(e.clientX, e.clientY);
+                _registerHit(p.x, p.y);
+            });
+
+            // Touch taps (mobile)
+            canvas.addEventListener('touchend', e => {
+                const t = e.changedTouches[0];
+                const p = _getCanvasPoint(t.clientX, t.clientY);
+                _registerHit(p.x, p.y);
+            }, { passive: true });
+        })();
+        // ────────────────────────────────────────────────────────────────
 
         document.addEventListener('keydown', e => {
             keys[e.code] = true;
