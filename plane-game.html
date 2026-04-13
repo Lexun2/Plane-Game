@@ -579,8 +579,75 @@ let levelFsmBossSpawned = false;
             s.start();
         }
 
+        // ── Procedural level music for levels 2-4 ──
+        let _levelBgmTimer = null;
+        let _levelBgmNoteIdx = 0;
+
+        const LEVEL_BGM = {
+            // Level 2 — Sky: ethereal C-major arpeggios, sine wave
+            2: { notes:[523.25,659.25,783.99,1046.5,783.99,659.25], type:'sine',   vol:0.04, bpm:120 },
+            // Level 3 — Desert: exotic Phrygian scale, triangle, slow
+            3: { notes:[146.83,174.61,196,220,174.61,155.56,196,130.81], type:'triangle', vol:0.045, bpm:76 },
+            // Level 4 — Neon: minor-pentatonic, square-wave filtered, fast
+            4: { notes:[220,261.63,293.66,349.23,440,349.23,293.66,261.63], type:'square', vol:0.022, bpm:148 }
+        };
+
+        function stopLevelBgm() {
+            if (_levelBgmTimer) { clearInterval(_levelBgmTimer); _levelBgmTimer = null; }
+        }
+
+        function playLevelBgm(level) {
+            stopLevelBgm();
+            if (level === 1) {
+                if (foneMusic && settings.sound === 'on') {
+                    foneMusic.currentTime = 0; foneMusic.play().catch(() => {});
+                }
+                return;
+            }
+            if (!snd()) return;
+            const cfg = LEVEL_BGM[level];
+            if (!cfg) return;
+            _levelBgmNoteIdx = 0;
+            const msPerNote = (60000 / cfg.bpm) * 0.5;
+
+            function playNote() {
+                if (!snd()) return;
+                const freq = cfg.notes[_levelBgmNoteIdx % cfg.notes.length];
+                _levelBgmNoteIdx++;
+                const dur = msPerNote / 1000 * 0.88;
+                const o = audioCtx.createOscillator();
+                o.type = cfg.type;
+                o.frequency.value = freq;
+                const g = audioCtx.createGain();
+                g.gain.setValueAtTime(cfg.vol, audioCtx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+                const filt = audioCtx.createBiquadFilter();
+                filt.type = 'lowpass';
+                filt.frequency.value = level === 4 ? 900 : 3000;
+                o.connect(filt); filt.connect(g); g.connect(audioCtx.destination);
+                o.start(); o.stop(audioCtx.currentTime + dur);
+            }
+            playNote();
+            _levelBgmTimer = setInterval(playNote, msPerNote);
+        }
+
+        function resumeLevelBgm(level) {
+            if (level === 1) {
+                if (foneMusic && settings.sound === 'on') foneMusic.play().catch(() => {});
+            } else {
+                playLevelBgm(level);
+            }
+        }
+
+        function pauseLevelBgm(level) {
+            if (level === 1) { if (foneMusic) foneMusic.pause(); }
+            else { stopLevelBgm(); }
+        }
+        // ────────────────────────────────────────────
+
         function playBossMusic() {
             if (foneMusic) foneMusic.pause();
+            stopLevelBgm();
             if (bossMusic && settings.sound === 'on') {
                 bossMusic.play().catch(() => {});
             }
@@ -784,13 +851,178 @@ let levelFsmBossSpawned = false;
             ctx.restore();
         }
 
+        function drawBossLevel2(r) {
+            // Azure Skymage — злобная морда из туч с молниями
+            const t = frameCount;
+            const pulse = Math.sin(t * 0.05) * 0.15 + 0.85;
+
+            // Свечение
+            const grad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 1.1);
+            grad.addColorStop(0, 'rgba(80,180,255,0.25)');
+            grad.addColorStop(1, 'rgba(0,80,180,0)');
+            ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, r * 1.1, 0, Math.PI * 2); ctx.fill();
+
+            // Облачное тело (3 круга)
+            ctx.fillStyle = `rgba(200,230,255,${0.9 * pulse})`;
+            ctx.shadowColor = '#66aaff'; ctx.shadowBlur = 18;
+            [[0,0,r],[r*0.65,-r*0.2,r*0.55],[-r*0.65,-r*0.2,r*0.55]].forEach(([cx,cy,cr]) => {
+                ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.shadowBlur = 0;
+
+            // Брови (злые, сдвинуты к носу)
+            ctx.strokeStyle = '#112244'; ctx.lineWidth = r * 0.09;
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(-r*0.55, -r*0.22); ctx.lineTo(-r*0.18, -r*0.38); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(r*0.55, -r*0.22);  ctx.lineTo(r*0.18, -r*0.38);  ctx.stroke();
+
+            // Глаза — светящиеся
+            [[-r*0.3, -r*0.08],[r*0.3, -r*0.08]].forEach(([ex, ey]) => {
+                ctx.fillStyle = '#001133'; ctx.beginPath(); ctx.arc(ex, ey, r*0.18, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = `rgba(0,180,255,${pulse})`; ctx.shadowColor='#00aaff'; ctx.shadowBlur=14;
+                ctx.beginPath(); ctx.arc(ex, ey, r*0.11, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle='#fff'; ctx.shadowBlur=0;
+                ctx.beginPath(); ctx.arc(ex-r*0.04, ey-r*0.04, r*0.035, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.shadowBlur = 0;
+
+            // Рот — зигзаг-молния
+            ctx.strokeStyle = '#001155'; ctx.lineWidth = r * 0.06; ctx.lineJoin = 'round';
+            ctx.beginPath();
+            const mx = [-r*0.4,-r*0.2,0,r*0.2,r*0.4], my = [r*0.3,r*0.15,r*0.3,r*0.15,r*0.3];
+            ctx.moveTo(mx[0], my[0]);
+            for(let i=1;i<5;i++) ctx.lineTo(mx[i], my[i]);
+            ctx.stroke();
+
+            // Молнии по бокам
+            ctx.strokeStyle = `rgba(100,200,255,${0.5+Math.sin(t*0.15)*0.5})`; ctx.lineWidth = 2;
+            [[-r*0.95,-r*0.6,-r*1.15,-r*0.3],[ r*0.95,-r*0.6, r*1.15,-r*0.3]].forEach(([x1,y1,x2,y2]) => {
+                ctx.beginPath(); ctx.moveTo(x1,y1);
+                ctx.lineTo((x1+x2)/2+r*0.1*(Math.random()-0.5), (y1+y2)/2);
+                ctx.lineTo(x2,y2); ctx.stroke();
+            });
+        }
+
+        function drawBossLevel3(r) {
+            // Sand Sovereign — бронированный пустынный скорпион-череп
+            const t = frameCount;
+            const glow = 0.7 + Math.sin(t*0.06)*0.3;
+
+            // Свечение
+            const grad = ctx.createRadialGradient(0, 0, r*0.1, 0, 0, r*1.05);
+            grad.addColorStop(0,'rgba(255,160,30,0.3)'); grad.addColorStop(1,'rgba(180,80,0,0)');
+            ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(0,0,r*1.05,0,Math.PI*2); ctx.fill();
+
+            // Тело — бронированный многоугольник
+            ctx.fillStyle = '#8B6914'; ctx.shadowColor='#ff8800'; ctx.shadowBlur=10;
+            ctx.beginPath();
+            for(let i=0;i<6;i++){const a=i/6*Math.PI*2-Math.PI/2; ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);}
+            ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+
+            // Броня-линии
+            ctx.strokeStyle='#5C4A00'; ctx.lineWidth=r*0.04;
+            ctx.beginPath(); ctx.moveTo(-r*0.6,0); ctx.lineTo(r*0.6,0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-r*0.5,-r*0.45); ctx.lineTo(r*0.5,-r*0.45); ctx.stroke();
+
+            // Шипы сверху
+            ctx.fillStyle='#A07820';
+            [[-r*0.4,-r*0.85],[0,-r*1.05],[r*0.4,-r*0.85]].forEach(([sx,sy]) => {
+                ctx.beginPath(); ctx.moveTo(sx-r*0.08,sy+r*0.2); ctx.lineTo(sx,sy); ctx.lineTo(sx+r*0.08,sy+r*0.2); ctx.closePath(); ctx.fill();
+            });
+
+            // Глаза — огненные
+            [[-r*0.28,-r*0.15],[r*0.28,-r*0.15]].forEach(([ex,ey]) => {
+                ctx.fillStyle='#1a0a00'; ctx.beginPath(); ctx.arc(ex,ey,r*0.17,0,Math.PI*2); ctx.fill();
+                ctx.fillStyle=`rgba(255,${100+Math.floor(glow*80)},0,${glow})`; ctx.shadowColor='#ff6600'; ctx.shadowBlur=12;
+                ctx.beginPath(); ctx.arc(ex,ey,r*0.1,0,Math.PI*2); ctx.fill();
+                ctx.shadowBlur=0;
+            });
+
+            // Рот — оскал
+            ctx.fillStyle='#1a0a00'; ctx.beginPath();
+            ctx.moveTo(-r*0.32,r*0.18); ctx.lineTo(r*0.32,r*0.18); ctx.lineTo(r*0.28,r*0.38); ctx.lineTo(-r*0.28,r*0.38); ctx.closePath(); ctx.fill();
+            // зубы
+            ctx.fillStyle='#C8B450';
+            for(let i=0;i<5;i++){
+                ctx.beginPath();
+                ctx.moveTo(-r*0.28+i*r*0.14, r*0.18);
+                ctx.lineTo(-r*0.28+i*r*0.14+r*0.06, r*0.18);
+                ctx.lineTo(-r*0.28+i*r*0.14+r*0.03, r*0.32);
+                ctx.closePath(); ctx.fill();
+            }
+        }
+
+        function drawBossLevel4(r) {
+            // Neon Overlord — киберробот с неоновыми схемами
+            const t = frameCount;
+            const pulse = 0.6 + Math.sin(t*0.08)*0.4;
+            const cyan = `rgba(0,255,220,${pulse})`;
+            const pink = `rgba(255,0,180,${pulse})`;
+
+            // Неоновое свечение
+            const grad = ctx.createRadialGradient(0,0,r*0.1,0,0,r*1.1);
+            grad.addColorStop(0,'rgba(180,0,255,0.2)'); grad.addColorStop(1,'rgba(0,200,255,0)');
+            ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(0,0,r*1.1,0,Math.PI*2); ctx.fill();
+
+            // Металлическое тело — прямоугольник со срезами
+            ctx.fillStyle='#0d0d1a'; ctx.strokeStyle=cyan; ctx.lineWidth=r*0.04;
+            ctx.shadowColor='#00ffcc'; ctx.shadowBlur=16;
+            ctx.beginPath();
+            ctx.moveTo(-r*0.75,-r*0.85); ctx.lineTo(r*0.75,-r*0.85);
+            ctx.lineTo(r*0.9,-r*0.4); ctx.lineTo(r*0.9,r*0.5);
+            ctx.lineTo(r*0.75,r*0.85); ctx.lineTo(-r*0.75,r*0.85);
+            ctx.lineTo(-r*0.9,r*0.5); ctx.lineTo(-r*0.9,-r*0.4);
+            ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.shadowBlur=0;
+
+            // Схемы-линии
+            ctx.strokeStyle=`rgba(0,255,200,0.3)`; ctx.lineWidth=1.5;
+            [[-r*0.6,-r*0.6,-r*0.6,r*0.6],[r*0.6,-r*0.6,r*0.6,r*0.6],[-r*0.9,0,r*0.9,0]].forEach(([x1,y1,x2,y2]) => {
+                ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+            });
+            ctx.beginPath(); ctx.moveTo(-r*0.9,0); ctx.lineTo(r*0.9,0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0,-r*0.85); ctx.lineTo(0,r*0.85); ctx.stroke();
+
+            // Глаза — прямоугольные, неоновые
+            [[-r*0.32,-r*0.2],[r*0.32,-r*0.2]].forEach(([ex,ey]) => {
+                ctx.fillStyle='#000'; ctx.fillRect(ex-r*0.18, ey-r*0.12, r*0.36, r*0.24);
+                ctx.fillStyle=pink; ctx.shadowColor='#ff00cc'; ctx.shadowBlur=14;
+                ctx.fillRect(ex-r*0.14, ey-r*0.08, r*0.28, r*0.16);
+                ctx.shadowBlur=0;
+            });
+
+            // Рот — пиксельный горизонтальный лазер
+            ctx.fillStyle='#000'; ctx.fillRect(-r*0.4, r*0.2, r*0.8, r*0.14);
+            ctx.fillStyle=cyan; ctx.shadowColor='#00ffcc'; ctx.shadowBlur=10;
+            ctx.fillRect(-r*0.38, r*0.22, r*0.76*(0.5+Math.sin(t*0.1)*0.5), r*0.1);
+            ctx.shadowBlur=0;
+
+            // Антенны
+            ctx.strokeStyle=pink; ctx.lineWidth=r*0.035; ctx.shadowColor='#ff00cc'; ctx.shadowBlur=8;
+            ctx.beginPath(); ctx.moveTo(-r*0.3,-r*0.85); ctx.lineTo(-r*0.45,-r*1.15); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(r*0.3,-r*0.85);  ctx.lineTo(r*0.45,-r*1.15);  ctx.stroke();
+            ctx.fillStyle=pink;
+            ctx.beginPath(); ctx.arc(-r*0.45,-r*1.15, r*0.06, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(r*0.45,-r*1.15,  r*0.06, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur=0;
+        }
+
         function drawBoss(b) {
             ctx.save(); ctx.translate(b.x, b.y);
-            const scale = b.width / bossImage.width;
-            ctx.scale(scale, scale);
-            ctx.drawImage(bossImage, -bossImage.width / 2, -bossImage.height / 2);
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.translate(b.x, b.y);
+
+            const r = b.width * 0.5;
+            if (gameLevel === 1) {
+                const scale = b.width / (bossImage.width || 1);
+                ctx.scale(scale, scale);
+                ctx.drawImage(bossImage, -bossImage.width / 2, -bossImage.height / 2);
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.translate(b.x, b.y);
+            } else if (gameLevel === 2) {
+                drawBossLevel2(r);
+            } else if (gameLevel === 3) {
+                drawBossLevel3(r);
+            } else {
+                drawBossLevel4(r);
+            }
 
             const barW = b.width * 0.8;
             const barH = 8;
@@ -801,8 +1033,7 @@ let levelFsmBossSpawned = false;
             const hpColor = hpRatio > 0.5 ? '#4caf50' : hpRatio > 0.25 ? '#ff9800' : '#f44336';
             ctx.fillStyle = hpColor;
             ctx.fillRect(-barW / 2, barY, barW * hpRatio, barH);
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
             ctx.strokeRect(-barW / 2, barY, barW, barH);
 
             ctx.restore();
@@ -842,17 +1073,20 @@ let levelFsmBossSpawned = false;
         }
 
         function drawBeam() {
-            if (activeWeapon !== 'beam' || !keys['Space']) return;
+            const isBeam = activeWeapon === 'beam' || activeWeapon === 'neon';
+            if (!isBeam || !keys['Space']) return;
             const pulse = 0.5 + Math.sin(frameCount * 0.15) * 0.3;
+            const beamColor = activeWeapon === 'neon' ? [200, 0, 255] : [0, 230, 255];
+            const [r, g, b] = beamColor;
             ctx.save();
-            ctx.strokeStyle = `rgba(0, 230, 255, ${pulse})`;
-            ctx.shadowColor = '#00e6ff'; ctx.shadowBlur = 20;
-            ctx.lineWidth = 4;
+            ctx.strokeStyle = `rgba(${r},${g},${b},${pulse})`;
+            ctx.shadowColor = `rgb(${r},${g},${b})`; ctx.shadowBlur = 20;
+            ctx.lineWidth = activeWeapon === 'neon' ? 6 : 4;
             ctx.beginPath();
             ctx.moveTo(player.x, player.y - player.height / 2);
             ctx.lineTo(player.x, 0);
             ctx.stroke();
-            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse * 0.6})`;
+            ctx.strokeStyle = `rgba(255,255,255,${pulse * 0.6})`;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(player.x, player.y - player.height / 2);
@@ -882,12 +1116,13 @@ let levelFsmBossSpawned = false;
             ctx.translate(p.x, p.y);
             const bob = Math.sin(frameCount * 0.08) * 3;
             ctx.translate(0, bob);
-            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            // Фон кружка — цвет зависит от типа оружия
+            ctx.fillStyle = p.bg || 'rgba(0,0,0,0.5)';
             ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
             ctx.strokeStyle = p.glowColor; ctx.lineWidth = 2;
             ctx.shadowColor = p.glowColor; ctx.shadowBlur = 15;
             ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke();
-            ctx.fillStyle = p.color; ctx.font = 'bold 18px Arial';
+            ctx.fillStyle = p.color; ctx.font = 'bold 16px monospace';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.shadowBlur = 0;
             ctx.fillText(p.icon, 0, 1);
@@ -1065,13 +1300,35 @@ let levelFsmBossSpawned = false;
             });
         }
 
+        const LEVEL_WEAPONS = {
+            1: [
+                { type: 'beam',   icon: '|', color: '#00e6ff', glowColor: '#00e6ff', bg: 'rgba(0,100,180,0.55)' },
+                { type: 'triple', icon: 'V', color: '#ff6600', glowColor: '#ff6600', bg: 'rgba(160,60,0,0.55)' },
+                { type: 'penta',  icon: 'W', color: '#e040fb', glowColor: '#e040fb', bg: 'rgba(120,0,160,0.55)' }
+            ],
+            2: [
+                // ice: 3 ледяных снаряда веером, голубой
+                { type: 'ice',   icon: '*', color: '#a0f0ff', glowColor: '#00d4ff', bg: 'rgba(0,120,200,0.55)' },
+                // storm: быстрая очередь из 4 пуль подряд, белый
+                { type: 'storm', icon: '=', color: '#ffffff', glowColor: '#aaddff', bg: 'rgba(80,130,200,0.55)' }
+            ],
+            3: [
+                // flame: тройной выстрел + большие снаряды, оранжевый
+                { type: 'flame',   icon: '^', color: '#ff7700', glowColor: '#ff4400', bg: 'rgba(160,50,0,0.55)' },
+                // scatter: 8 снарядов в стороны, жёлто-коричневый
+                { type: 'scatter', icon: '+', color: '#ffcc44', glowColor: '#ffaa00', bg: 'rgba(120,80,0,0.55)' }
+            ],
+            4: [
+                // neon: непрерывный луч как beam, но пурпурный с большим уроном
+                { type: 'neon',   icon: '#', color: '#cc00ff', glowColor: '#ff00cc', bg: 'rgba(100,0,160,0.55)' },
+                // homing: самонаводящиеся снаряды, циановые
+                { type: 'homing', icon: '@', color: '#00ffcc', glowColor: '#00ffee', bg: 'rgba(0,100,100,0.55)' }
+            ]
+        };
+
         function spawnPowerup() {
-            const types = [
-                { type: 'beam', icon: '|', color: '#00e6ff', glowColor: '#00e6ff' },
-                { type: 'triple', icon: 'V', color: '#ff6600', glowColor: '#ff6600' },
-                { type: 'penta', icon: 'W', color: '#e040fb', glowColor: '#e040fb' }
-            ];
-            const t = types[Math.floor(Math.random() * types.length)];
+            const pool = LEVEL_WEAPONS[gameLevel] || LEVEL_WEAPONS[1];
+            const t = pool[Math.floor(Math.random() * pool.length)];
             powerups.push({
                 x: Math.random() * (W - 60) + 30, y: -30, speed: 1.5, ...t
             });
@@ -1084,8 +1341,8 @@ let levelFsmBossSpawned = false;
             // Simple per-level boss HP scaling (placeholder balance)
             const levelHP = {
                 1: 150,
-                2: 900,
-                3: 1100,
+                2: 450,
+                3: 550,
                 4: 1500
             }[gameLevel] || 150;
             boss = {
@@ -1214,13 +1471,64 @@ let levelFsmBossSpawned = false;
                     fireBullet(-45, '#e040fb'); fireBullet(45, '#e040fb');
                     fireBullet(-65, '#ce93d8'); fireBullet(65, '#ce93d8');
                     player.shootCooldown = 16;
+                // === Уровень 2 ===
+                } else if (activeWeapon === 'ice') {
+                    // 3 ледяных снаряда широким веером
+                    fireBullet(0, '#a0f0ff'); fireBullet(-55, '#60ddff'); fireBullet(55, '#60ddff');
+                    player.shootCooldown = 14;
+                } else if (activeWeapon === 'storm') {
+                    // Быстрая очередь: каждый вызов стреляет сразу 2 за малый cooldown
+                    fireBullet(-8, '#ffffff'); fireBullet(8, '#cceeFF');
+                    player.shootCooldown = 5;
+                // === Уровень 3 ===
+                } else if (activeWeapon === 'flame') {
+                    // Тройной огненный + крупнее
+                    fireBullet(0, '#ff7700'); fireBullet(-38, '#ff4400'); fireBullet(38, '#ff4400');
+                    player.shootCooldown = 18;
+                } else if (activeWeapon === 'scatter') {
+                    // 8 снарядов во все стороны (но с уклоном вверх)
+                    for (let a = -70; a <= 70; a += 20) fireBullet(a, '#ffcc44');
+                    player.shootCooldown = 22;
+                // === Уровень 4 ===
+                } else if (activeWeapon === 'neon') {
+                    // Как beam, но пурпурный — используем beam-логику
+                    player.shootCooldown = 6;
+                } else if (activeWeapon === 'homing') {
+                    // Самонаводящийся снаряд
+                    const rad = 0;
+                    const spriteScale = player.height / 184;
+                    bullets.push({
+                        x: player.x, y: player.y - 92 * spriteScale,
+                        speed: 7, vx: 0, vy: -7,
+                        color: '#00ffcc', homing: true
+                    });
+                    player.shootCooldown = 20;
                 }
                 playShootSound();
             }
         }
 
         function updateBullets() {
-            bullets.forEach(b => { b.x += b.vx || 0; b.y += b.vy || -b.speed; });
+            bullets.forEach(b => {
+                // Самонаводящийся снаряд — плавно доворачивает к ближайшему врагу/боссу
+                if (b.homing) {
+                    const targets = [...enemies, ...(boss ? [boss] : [])];
+                    if (targets.length > 0) {
+                        const closest = targets.reduce((best, t) => {
+                            const d = Math.hypot(t.x - b.x, t.y - b.y);
+                            return d < best.d ? { t, d } : best;
+                        }, { t: null, d: Infinity }).t;
+                        if (closest) {
+                            const dx = closest.x - b.x;
+                            const dy = closest.y - b.y;
+                            const dist = Math.hypot(dx, dy) || 1;
+                            b.vx = (b.vx || 0) * 0.9 + (dx / dist) * b.speed * 0.12;
+                            b.vy = (b.vy || -b.speed) * 0.9 + (dy / dist) * b.speed * 0.12;
+                        }
+                    }
+                }
+                b.x += b.vx || 0; b.y += b.vy || -b.speed;
+            });
             bullets = bullets.filter(b => b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20);
         }
 
@@ -1331,9 +1639,10 @@ let levelFsmBossSpawned = false;
                 }
             }
 
-            if (activeWeapon === 'beam' && keys['Space'] && boss && boss.flashTimer <= 0) {
+            if ((activeWeapon === 'beam' || activeWeapon === 'neon') && keys['Space'] && boss && boss.flashTimer <= 0) {
+                const beamDmg = activeWeapon === 'neon' ? 2 : 1; // neon наносит двойной урон
                 if (Math.abs(boss.x - player.x) < boss.width / 2 + 4) {
-                    boss.hp--;
+                    boss.hp -= beamDmg;
                     boss.flashTimer = 5;
                     playBossHitSound();
                     if (boss.hp <= 0) {
@@ -1352,7 +1661,7 @@ let levelFsmBossSpawned = false;
                 }
             }
 
-            if (activeWeapon === 'beam' && keys['Space']) {
+            if ((activeWeapon === 'beam' || activeWeapon === 'neon') && keys['Space']) {
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const e = enemies[j];
                     if (Math.abs(e.x - player.x) < e.width / 2 + 4) {
@@ -1437,10 +1746,9 @@ let levelFsmBossSpawned = false;
 
         function startGame(fromMenu) {
             initAudio();
-            if (foneMusic && settings.sound === 'on') {
-                foneMusic.currentTime = 0;
-                foneMusic.play().catch(() => {});
-            }
+            stopLevelBgm();
+            if (foneMusic) { foneMusic.pause(); foneMusic.currentTime = 0; }
+            // Level 1 music starts after FSM shows level text (in WAIT_BEFORE_SPAWN)
             resizeCanvas(settings.mapSize);
             initStars(); resetPlayer();
             score = 0; lives = 3; frameCount = 0;
@@ -1493,33 +1801,30 @@ let levelFsmBossSpawned = false;
             gameLoop();
         }
 
-        function pauseGame() { 
-            if (!gameRunning || gamePaused) return; 
-            gamePaused = true; 
+        function pauseGame() {
+            if (!gameRunning || gamePaused) return;
+            gamePaused = true;
             if (bossMusic) bossMusic.pause();
-            if (foneMusic) foneMusic.pause();
-            showScreen(pauseScreen); 
+            pauseLevelBgm(gameLevel);
+            showScreen(pauseScreen);
         }
-        function resumeGame() { 
-            if (!gamePaused) return; 
-            gamePaused = false; 
+        function resumeGame() {
+            if (!gamePaused) return;
+            gamePaused = false;
             if (boss) {
-                if (bossMusic && settings.sound === 'on') {
-                    bossMusic.play().catch(() => {});
-                }
+                if (bossMusic && settings.sound === 'on') bossMusic.play().catch(() => {});
             } else {
-                if (foneMusic && settings.sound === 'on') {
-                    foneMusic.play().catch(() => {});
-                }
+                resumeLevelBgm(gameLevel);
             }
-            showScreen(null); 
-            gameLoop(); 
+            showScreen(null);
+            gameLoop();
         }
 
         function goToMainMenu() {
             gameRunning = false; gamePaused = false; gameControlsEnabled = false;
             if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
             if (foneMusic) { foneMusic.pause(); foneMusic.currentTime = 0; }
+            stopLevelBgm();
             uiEl.classList.add('hidden');
             resizeCanvas(settings.mapSize);
             ctx.fillStyle = '#16213e'; ctx.fillRect(0, 0, W, H);
@@ -1531,6 +1836,7 @@ let levelFsmBossSpawned = false;
             gameRunning = false; gameControlsEnabled = false;
             if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
             if (foneMusic) { foneMusic.pause(); foneMusic.currentTime = 0; }
+            stopLevelBgm();
             if (boss) {
                 playFailMusic();
             }
@@ -1898,6 +2204,7 @@ let levelFsmBossSpawned = false;
                     enemySpawnTimer = BOSS_SPAWN_DELAY;
                     enemySpawnFrameCount = 0;
                     gameControlsEnabled = true;
+                    playLevelBgm(gameLevel);
                     fsmLog('WAIT_BEFORE_SPAWN -> ENEMIES_SPAWN');
                 }
             } else if (levelFsmState === LEVEL_FSM_STATES.SHOW_BOSS) {
@@ -2046,11 +2353,12 @@ let levelFsmBossSpawned = false;
             });
         })();
 
-        // Show/hide touch controls — only when player can actually steer
+        // Show/hide touch controls — only on touch devices and only during active gameplay
+        const _isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
         function updateTouchControls() {
             const tc = document.getElementById('touchControls');
             if (!tc) return;
-            if (gameControlsEnabled) {
+            if (_isTouchDevice && gameControlsEnabled) {
                 tc.classList.add('visible');
             } else {
                 tc.classList.remove('visible');
