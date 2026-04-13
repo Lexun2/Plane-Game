@@ -1,0 +1,14 @@
+{
+  "id": "level3_boss",
+  "name": "Sand Sovereign",
+  "health": 1100,
+  "attacks": [
+    {"name": "Quicksand Burst", "pattern": "area", "damage": 20, "cooldown": 3.5},
+    {"name": "Desert Blade", "pattern": "cone", "damage": 15, "cooldown": 2.5}
+  ],
+  "phases": [
+    {"threshold": 700, "description": "phase with mirages and sand walls"},
+    {"threshold": 350, "description": "phase with faster blade swaps"}
+  ],
+  "weakness": "crystal core beneath dunes"
+}

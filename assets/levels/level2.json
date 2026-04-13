@@ -1,0 +1,16 @@
+{
+  "id": "level2",
+  "name": "Azure Skies",
+  "theme": "sky",
+  "backgroundAsset": "backgrounds/blue_sky.png",
+  "dimensions": {"width": 1280, "height": 720},
+  "boss": {"ref": "level2_boss.json"},
+  "weapons": [
+    {"type": "ice_dart", "frequency": 1.0},
+    {"type": "cloud_blade", "frequency": 0.5}
+  ],
+  "hazards": ["wind_gusts", "cloud_cover"],
+  "music": "sky_theme_02",
+  "description": "Open sky arena with clouds; emphasizes movement and positional awareness.",
+  "enemySprite": "enemys.png"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "level4_boss",
+  "name": "Neon Overlord",
+  "health": 1500,
+  "attacks": [
+    {"name": "Laser Pulse", "pattern": "grid", "damage": 22, "cooldown": 2.0},
+    {"name": "Disk Storm", "pattern": "multi", "damage": 18, "cooldown": 4.0}
+  ],
+  "phases": [
+    {"threshold": 1000, "description": "phase with laser grid intensification"},
+    {"threshold": 500, "description": "phase with faster disk storms"}
+  ],
+  "weakness": "exposed core after disk storm ends"
+}

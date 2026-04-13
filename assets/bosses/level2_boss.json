@@ -1,0 +1,14 @@
+{
+  "id": "level2_boss",
+  "name": "Azure Skymage",
+  "health": 900,
+  "attacks": [
+    {"name": "Cyclone Strike", "pattern": "arc", "damage": 18, "cooldown": 3.0},
+    {"name": "Cloud Burst", "pattern": "area", "damage": 12, "cooldown": 4.0}
+  ],
+  "phases": [
+    {"threshold": 600, "description": "phase with faster wind"},
+    {"threshold": 300, "description": "phase with cloud shields"}
+  ],
+  "weakness": "exposed wind cores during cyclone" 
+}

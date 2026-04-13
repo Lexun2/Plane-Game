@@ -1,0 +1,16 @@
+{
+  "id": "level4",
+  "name": "Neon Tron Arena",
+  "theme": "tron",
+  "backgroundAsset": "backgrounds/tron_neon.png",
+  "dimensions": {"width": 1280, "height": 720},
+  "boss": {"ref": "level4_boss.json"},
+  "weapons": [
+    {"type": "neon_disc", "frequency": 1.0},
+    {"type": "laser_shift", "frequency": 0.6}
+  ],
+  "hazards": ["laser_grid", "neon_pulse"],
+  "music": "tron_neon_04",
+  "description": "Futuristic neon arena with laser grids; fast-paced and rhythmic dodging required.",
+  "enemySprite": "enemys.png"
+}

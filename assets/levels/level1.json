@@ -1,0 +1,16 @@
+{
+  "id": "level1",
+  "name": "Starfield Trial",
+  "theme": "space",
+  "backgroundAsset": "backgrounds/space_starfield.png",
+  "dimensions": {"width": 1280, "height": 720},
+  "boss": {"ref": "level1_boss.json"},
+  "weapons": [
+    {"type": "plasma_bolt", "frequency": 1.0},
+    {"type": "meteor_shard", "frequency": 0.6}
+  ],
+  "hazards": ["meteor_shower", "gravitational_pull"],
+  "music": "space_theme_01",
+  "description": "Cosmic stage with stars and occasional meteors; teaches basic dodging and focus fire on boss.",
+  "enemySprite": "enemys.png"
+}

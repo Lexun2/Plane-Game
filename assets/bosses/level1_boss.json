@@ -1,0 +1,14 @@
+{
+  "id": "level1_boss",
+  "name": "Cosmic Warden",
+  "health": 1200,
+  "attacks": [
+    {"name": "Beam", "pattern": "line", "damage": 20, "cooldown": 2.0},
+    {"name": "Meteor Shower", "pattern": "area", "damage": 15, "cooldown": 5.0}
+  ],
+  "phases": [
+    {"threshold": 800, "description": "Phase 2: faster beam and occasional meteor bocks"},
+    {"threshold": 400, "description": "Phase 3: aggressive patterns and shield sway"}
+  ],
+  "weakness": "when near comet core; disable shield briefly"
+}

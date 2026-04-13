@@ -1,0 +1,16 @@
+{
+  "id": "level3",
+  "name": "Desert Ground",
+  "theme": "desert",
+  "backgroundAsset": "backgrounds/desert.png",
+  "dimensions": {"width": 1280, "height": 720},
+  "boss": {"ref": "level3_boss.json"},
+  "weapons": [
+    {"type": "sand_blade", "frequency": 1.0},
+    {"type": "sun_bomb", "frequency": 0.4}
+  ],
+  "hazards": ["quicksand_patches", "heat_rays"],
+  "music": "desert_theme_03",
+  "description": "Desert arena with mirages; the boss uses heat-based patterns and sand barriers.",
+  "enemySprite": "enemys.png"
+}
