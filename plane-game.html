@@ -430,6 +430,7 @@ let levelState = LEVEL_STATES.PLAYING;
         let transitionTimer = 0;
         let enemySpawnTimer = 0;
         let enemySpawnFrameCount = 0;
+        let enemySpawnCount = 0;
 let bossAnnounceTimer = 0;
 // FSM auxiliary flags
 let levelFsmTextShown = false;
@@ -1406,12 +1407,14 @@ let levelFsmBossSpawned = false;
                 if (variant === 2) sm *= 0.7;
             }
             if (gameLevel === 3) sm *= 0.7; // level 3: additional -30% speed
+            if (gameLevel === 4) sm *= 0.8; // level 4: 0.5 * 0.8 = 0.4 = 1/2.5 base speed
             let wobbleAmp = 1.5 * t.wobbleMult;
             if (gameLevel >= 3) wobbleAmp = 0;
             const visualH = 50 * sizeMult;
             const visualW = 60 * sizeMult;
             const halfW = visualW / 2 + 8;
             const spawnX = Math.random() * (W - halfW * 2) + halfW;
+            const isEvenSpawn = (enemySpawnCount % 2 === 1);
             enemies.push({
                 x: spawnX, y: -50,
                 width: visualW, height: visualH, speed: t.spd * sm,
@@ -1419,8 +1422,13 @@ let levelFsmBossSpawned = false;
                 wobble: Math.random() * Math.PI * 2,
                 wobbleSpeed: (Math.random() * 0.05 + 0.02) * t.wobbleMult,
                 wobbleAmp: wobbleAmp,
-                variant: variant
+                variant: variant,
+                vx: gameLevel === 4 ? (Math.random() - 0.5) * 4 : 0,
+                vxTimer: 0,
+                shootOnEntry: gameLevel === 2 && isEvenSpawn,
+                hasShot: false
             });
+            enemySpawnCount++;
         }
 
         const LEVEL_WEAPONS = {
@@ -1659,7 +1667,21 @@ let levelFsmBossSpawned = false;
             enemies.forEach(e => {
                 e.y += e.speed; e.wobble += e.wobbleSpeed;
                 e.x += Math.sin(e.wobble) * e.wobbleAmp;
+                // Level 4: chaotic horizontal drift
+                if (gameLevel === 4) {
+                    e.vxTimer = (e.vxTimer || 0) + 1;
+                    if (e.vxTimer >= 30 + Math.floor(Math.random() * 50)) {
+                        e.vx = (Math.random() - 0.5) * 5;
+                        e.vxTimer = 0;
+                    }
+                    e.x += e.vx;
+                }
                 clampEnemyX(e);
+                // Level 2: every other enemy shoots once on entry
+                if (gameLevel === 2 && e.shootOnEntry && !e.hasShot && e.y > 0 && e.y < H - 100) {
+                    e.hasShot = true;
+                    enemyBullets.push({ x: e.x, y: e.y + e.height / 2, vy: 7, color: '#aaddff' });
+                }
                 // Level 3 enemies randomly shoot downward
                 if (gameLevel === 3 && e.y > 0 && e.y < H - 100) {
                     e.shootTimer = (e.shootTimer || 0) + 1;
@@ -1747,13 +1769,14 @@ let levelFsmBossSpawned = false;
                                 color: '#ff4444'
                             });
                         }
-            if (boss.hp <= 0) {
-                createBigExplosion(boss.x, boss.y, 60);
-                createBigExplosion(boss.x - 30, boss.y + 20, 30);
-                createBigExplosion(boss.x + 30, boss.y - 10, 30);
-                killBoss();
-            }
-                        break;
+                        if (boss.hp <= 0) {
+                            createBigExplosion(boss.x, boss.y, 60);
+                            createBigExplosion(boss.x - 30, boss.y + 20, 30);
+                            createBigExplosion(boss.x + 30, boss.y - 10, 30);
+                            killBoss();
+                            break; // boss died — дальше проверять пули нет смысла
+                        }
+                        // Не прерываем цикл — другие пули из того же залпа тоже должны засчитаться
                     }
                 }
             }
@@ -1891,7 +1914,7 @@ let levelFsmBossSpawned = false;
             gameWon = false;
             gameControlsEnabled = false;
             enemySpawnTimer = 0;
-            enemySpawnFrameCount = 0;
+            enemySpawnFrameCount = 0; enemySpawnCount = 0;
             waitingForEnemiesClear = false;
             levelFsmShowBossTimer = 0;
             levelFsmBossSpawned = false;
@@ -2070,7 +2093,7 @@ let levelFsmBossSpawned = false;
             if (gameLevel === 1 && prevBgLevel === 1) {
                 levelState = LEVEL_STATES.ENEMIES_SPAWN;
                 enemySpawnTimer = BOSS_SPAWN_DELAY;
-                enemySpawnFrameCount = 0;
+                enemySpawnFrameCount = 0; enemySpawnCount = 0;
             } else if (levelState === LEVEL_STATES.LEVEL_TRANSITION) {
                 if (foneMusic && settings.sound === 'on') {
                     foneMusic.currentTime = 0;
@@ -2078,7 +2101,7 @@ let levelFsmBossSpawned = false;
                 }
                 levelState = LEVEL_STATES.ENEMIES_SPAWN;
                 enemySpawnTimer = BOSS_SPAWN_DELAY;
-                enemySpawnFrameCount = 0;
+                enemySpawnFrameCount = 0; enemySpawnCount = 0;
             }
         }
 
@@ -2088,6 +2111,7 @@ let levelFsmBossSpawned = false;
             let sr = Math.max(15, dp.spawnRate - score / 15);
             if (gameLevel === 2) sr *= 2;
             if (gameLevel === 3) sr *= 2.86; // level 3: spawn ~30% fewer enemies (1/0.35 ≈ 2.86)
+            if (gameLevel === 4) sr *= 2; // level 4: spawn rate halved (2x interval = half frequency)
             if (enemySpawnFrameCount % Math.floor(sr) === 0) spawnEnemy();
             if (enemySpawnFrameCount % 600 === 0) spawnPowerup();
         }
@@ -2349,6 +2373,8 @@ let levelFsmBossSpawned = false;
             resizeCanvas(settings.mapSize);
             // Reset player position/state
             initStars(); resetPlayer();
+            // Restore lives to max at the start of each level
+            lives = 3;
             // Clear per-level entities
             bullets = []; enemies = []; particles = []; powerups = []; bossBombs = []; enemyBullets = [];
             activeBombExplosions = [];
@@ -2433,7 +2459,7 @@ let levelFsmBossSpawned = false;
                     levelFsmOverlayAlpha = 0;
                     levelState = LEVEL_STATES.ENEMIES_SPAWN;
                     enemySpawnTimer = BOSS_SPAWN_DELAY;
-                    enemySpawnFrameCount = 0;
+                    enemySpawnFrameCount = 0; enemySpawnCount = 0;
                     gameControlsEnabled = true;
                     playLevelBgm(gameLevel);
                     fsmLog('WAIT_BEFORE_SPAWN -> ENEMIES_SPAWN');
