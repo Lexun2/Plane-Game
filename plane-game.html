@@ -2051,17 +2051,17 @@ let levelFsmBossSpawned = false;
             });
         })();
 
-        // Show/hide touch controls based on game state
+        // Show/hide touch controls — only when player can actually steer
         function updateTouchControls() {
             const tc = document.getElementById('touchControls');
             if (!tc) return;
-            if (gameRunning && !gamePaused) {
+            if (gameControlsEnabled) {
                 tc.classList.add('visible');
             } else {
                 tc.classList.remove('visible');
             }
         }
-        setInterval(updateTouchControls, 200);
+        setInterval(updateTouchControls, 100);
 
         document.getElementById('btnPlay').addEventListener('click', function() {
             const fo = document.getElementById('fadeOverlay');
