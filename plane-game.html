@@ -401,6 +401,7 @@
         let stars = [];
         let powerups = [];
         let bossBombs = [];
+        let enemyBullets = [];
         let beamHitCooldowns = new Map();
         let audioCtx = null;
 
@@ -583,17 +584,50 @@ let levelFsmBossSpawned = false;
         let _levelBgmTimer = null;
         let _levelBgmNoteIdx = 0;
 
+        // ── Level background music configs ──
+        // Level 2: dynamic sky — two interleaved layers (melody + bass), faster tempo
+        // Level 3: desert — exotic scale drone + accent notes
+        // Level 4: neon — driving synth bass + high arpeggios
         const LEVEL_BGM = {
-            // Level 2 — Sky: ethereal C-major arpeggios, sine wave
-            2: { notes:[523.25,659.25,783.99,1046.5,783.99,659.25], type:'sine',   vol:0.04, bpm:120 },
-            // Level 3 — Desert: exotic Phrygian scale, triangle, slow
-            3: { notes:[146.83,174.61,196,220,174.61,155.56,196,130.81], type:'triangle', vol:0.045, bpm:76 },
-            // Level 4 — Neon: minor-pentatonic, square-wave filtered, fast
-            4: { notes:[220,261.63,293.66,349.23,440,349.23,293.66,261.63], type:'square', vol:0.022, bpm:148 }
+            2: {
+                melody: { notes:[783.99,880,1046.5,987.77,880,783.99,659.25,783.99], type:'sine',     vol:0.038, bpm:160 },
+                bass:   { notes:[196,196,220,196,174.61,196,220,246.94],             type:'triangle', vol:0.045, bpm:80  }
+            },
+            3: {
+                melody: { notes:[220,246.94,261.63,293.66,246.94,220,196,220],       type:'triangle', vol:0.04,  bpm:88 },
+                bass:   { notes:[110,110,130.81,110,98,110,130.81,110],              type:'sawtooth', vol:0.03,  bpm:44 }
+            },
+            4: {
+                melody: { notes:[440,554.37,659.25,880,659.25,554.37,440,369.99],   type:'square',   vol:0.022, bpm:176 },
+                bass:   { notes:[110,110,138.59,110,110,138.59,110,123.47],         type:'square',   vol:0.028, bpm:88  }
+            }
         };
 
         function stopLevelBgm() {
-            if (_levelBgmTimer) { clearInterval(_levelBgmTimer); _levelBgmTimer = null; }
+            if (_levelBgmTimer) {
+                _levelBgmTimer.forEach(t => clearInterval(t));
+                _levelBgmTimer = null;
+            }
+        }
+
+        function _scheduleBgmLayer(layer, startDelay) {
+            if (!snd()) return null;
+            let idx = 0;
+            const ms = (60000 / layer.bpm) * 0.5;
+            function playNote() {
+                if (!snd()) return;
+                const freq = layer.notes[idx % layer.notes.length]; idx++;
+                const dur = ms / 1000 * 0.82;
+                const o = audioCtx.createOscillator(); o.type = layer.type; o.frequency.value = freq;
+                const g = audioCtx.createGain();
+                g.gain.setValueAtTime(layer.vol, audioCtx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+                const f = audioCtx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2800;
+                o.connect(f); f.connect(g); g.connect(audioCtx.destination);
+                o.start(); o.stop(audioCtx.currentTime + dur);
+            }
+            setTimeout(() => { playNote(); }, startDelay);
+            return setInterval(playNote, ms);
         }
 
         function playLevelBgm(level) {
@@ -607,28 +641,11 @@ let levelFsmBossSpawned = false;
             if (!snd()) return;
             const cfg = LEVEL_BGM[level];
             if (!cfg) return;
-            _levelBgmNoteIdx = 0;
-            const msPerNote = (60000 / cfg.bpm) * 0.5;
-
-            function playNote() {
-                if (!snd()) return;
-                const freq = cfg.notes[_levelBgmNoteIdx % cfg.notes.length];
-                _levelBgmNoteIdx++;
-                const dur = msPerNote / 1000 * 0.88;
-                const o = audioCtx.createOscillator();
-                o.type = cfg.type;
-                o.frequency.value = freq;
-                const g = audioCtx.createGain();
-                g.gain.setValueAtTime(cfg.vol, audioCtx.currentTime);
-                g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-                const filt = audioCtx.createBiquadFilter();
-                filt.type = 'lowpass';
-                filt.frequency.value = level === 4 ? 900 : 3000;
-                o.connect(filt); filt.connect(g); g.connect(audioCtx.destination);
-                o.start(); o.stop(audioCtx.currentTime + dur);
-            }
-            playNote();
-            _levelBgmTimer = setInterval(playNote, msPerNote);
+            // melody fires immediately, bass fires with half-beat offset
+            const t1 = _scheduleBgmLayer(cfg.melody, 0);
+            const bassMs = (60000 / cfg.bass.bpm) * 0.5;
+            const t2 = _scheduleBgmLayer(cfg.bass, bassMs / 2);
+            _levelBgmTimer = [t1, t2].filter(Boolean);
         }
 
         function resumeLevelBgm(level) {
@@ -645,11 +662,110 @@ let levelFsmBossSpawned = false;
         }
         // ────────────────────────────────────────────
 
+        let _bossBgmTimers = [];
+        function stopBossBgm() {
+            _bossBgmTimers.forEach(t => clearInterval(t)); _bossBgmTimers = [];
+        }
+
+        // Aggressive procedural boss music for levels 2-4
+        function playProceduralBossMusic(level) {
+            if (!snd()) return;
+            stopBossBgm();
+            // Configs per level — loud, warlike, heavy
+            const cfgs = {
+                2: {
+                    // Stormy sky boss — driving minor arpeggios + heavy bass hits
+                    mel:  { notes:[493.88,587.33,739.99,880,739.99,587.33,493.88,440],  type:'sawtooth', vol:0.10, bpm:180 },
+                    bass: { notes:[146.83,0,146.83,0,130.81,0,146.83,0],               type:'square',   vol:0.12, bpm:90  }
+                },
+                3: {
+                    // Desert boss — menacing tribal drum feel + growl bass
+                    mel:  { notes:[261.63,311.13,369.99,440,369.99,311.13,261.63,246.94], type:'sawtooth', vol:0.10, bpm:160 },
+                    bass: { notes:[65.41,0,65.41,65.41,0,73.42,0,65.41],               type:'square',   vol:0.13, bpm:80  }
+                },
+                4: {
+                    // Neon boss — intense cyberpunk riff
+                    mel:  { notes:[880,1046.5,987.77,880,783.99,880,1046.5,1174.66],   type:'square',   vol:0.09, bpm:200 },
+                    bass: { notes:[110,0,110,138.59,0,110,0,123.47],                  type:'sawtooth', vol:0.13, bpm:100 }
+                }
+            };
+            const cfg = cfgs[level] || cfgs[2];
+
+            function makeLayer(layer) {
+                let idx = 0;
+                const ms = (60000 / layer.bpm) * 0.5;
+                function playNote() {
+                    if (!snd()) return;
+                    const freq = layer.notes[idx % layer.notes.length]; idx++;
+                    if (!freq) return; // 0 = rest
+                    const dur = ms / 1000 * 0.75;
+                    const o = audioCtx.createOscillator(); o.type = layer.type; o.frequency.value = freq;
+                    const g = audioCtx.createGain();
+                    // Sharp attack, punchy
+                    g.gain.setValueAtTime(layer.vol, audioCtx.currentTime);
+                    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+                    const dist = audioCtx.createWaveShaper();
+                    const curve = new Float32Array(256);
+                    for (let i = 0; i < 256; i++) { const x = (i*2/256)-1; curve[i] = (Math.PI+200)*x/(Math.PI+200*Math.abs(x)); }
+                    dist.curve = curve;
+                    const f = audioCtx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq * 1.5; f.Q.value = 1.5;
+                    o.connect(dist); dist.connect(f); f.connect(g); g.connect(audioCtx.destination);
+                    o.start(); o.stop(audioCtx.currentTime + dur);
+                }
+                playNote();
+                return setInterval(playNote, ms);
+            }
+            _bossBgmTimers.push(makeLayer(cfg.mel));
+            setTimeout(() => { if (snd()) _bossBgmTimers.push(makeLayer(cfg.bass)); }, (60000/cfg.bass.bpm)*0.25);
+        }
+
+        // ── Boss death animation ──
+        function killBoss() {
+            if (!boss || boss.dying) return;
+            boss.dying = true;
+            boss.deathTimer = 120; // 2 seconds at 60fps
+            boss.deathAction = gameLevel < 4 ? 'next_level' : 'game_win';
+            score += 200;
+            stopBossBgm();
+            if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
+            playBossExplosionSound();
+        }
+
+        function updateBossDying() {
+            if (!boss || !boss.dying) return;
+            boss.deathTimer--;
+            // Continuous explosion particles
+            if (boss.deathTimer % 7 === 0) {
+                const ex = boss.x + (Math.random() - 0.5) * boss.width;
+                const ey = boss.y + (Math.random() - 0.5) * boss.height;
+                createBigExplosion(ex, ey, 20 + Math.random() * 25);
+                if (boss.deathTimer % 14 === 0) playBossExplosionSound();
+            }
+            if (boss.deathTimer <= 0) {
+                const action = boss.deathAction;
+                boss = null; enemies = []; bullets = []; enemyBullets = [];
+                if (action === 'next_level') {
+                    levelFsmState = LEVEL_FSM_STATES.FADE_TO_BLACK;
+                    levelFsmPendingLevel = gameLevel + 1;
+                    levelFsmOverlayAlpha = 0;
+                } else {
+                    gameWon = true;
+                    playWinMusic();
+                    setTimeout(() => { if (gameRunning && !gamePaused) gameOver(); }, 2000);
+                }
+            }
+        }
+        // ─────────────────────────────────────────────
+
         function playBossMusic() {
             if (foneMusic) foneMusic.pause();
             stopLevelBgm();
-            if (bossMusic && settings.sound === 'on') {
-                bossMusic.play().catch(() => {});
+            if (gameLevel >= 2) {
+                // Levels 2-4: use procedural warlike music
+                playProceduralBossMusic(gameLevel);
+            } else {
+                // Level 1: use boss.mp3
+                if (bossMusic && settings.sound === 'on') bossMusic.play().catch(() => {});
             }
         }
 
@@ -1341,9 +1457,9 @@ let levelFsmBossSpawned = false;
             // Simple per-level boss HP scaling (placeholder balance)
             const levelHP = {
                 1: 150,
-                2: 450,
-                3: 550,
-                4: 1500
+                2: 315,
+                3: 385,
+                4: 500
             }[gameLevel] || 150;
             boss = {
                 x: W / 2, y: -bh,
@@ -1537,8 +1653,20 @@ let levelFsmBossSpawned = false;
                 e.y += e.speed; e.wobble += e.wobbleSpeed;
                 e.x += Math.sin(e.wobble) * e.wobbleAmp;
                 clampEnemyX(e);
+                // Level 3 enemies randomly shoot downward
+                if (gameLevel === 3 && e.y > 0 && e.y < H - 100) {
+                    e.shootTimer = (e.shootTimer || 0) + 1;
+                    const shootInterval = 90 + Math.floor(Math.random() * 60); // ~1.5-2.5s
+                    if (e.shootTimer >= shootInterval && Math.random() < 0.015) {
+                        e.shootTimer = 0;
+                        enemyBullets.push({ x: e.x, y: e.y + e.height/2, vy: 4.5, color: '#ffaa00' });
+                    }
+                }
             });
             enemies = enemies.filter(e => e.y < H + 50);
+            // Move enemy bullets
+            enemyBullets.forEach(b => b.y += b.vy);
+            enemyBullets = enemyBullets.filter(b => b.y < H + 20);
         }
 
         function updateParticles() {
@@ -1594,7 +1722,7 @@ let levelFsmBossSpawned = false;
                 }
             }
 
-            if (boss && boss.flashTimer <= 0) {
+            if (boss && !boss.dying && boss.flashTimer <= 0) {
                 for (let i = bullets.length - 1; i >= 0; i--) {
                     const b = bullets[i];
                     if (b && Math.abs(b.x - boss.x) < boss.width / 2 && Math.abs(b.y - boss.y) < boss.height / 2) {
@@ -1616,31 +1744,15 @@ let levelFsmBossSpawned = false;
                 createBigExplosion(boss.x, boss.y, 60);
                 createBigExplosion(boss.x - 30, boss.y + 20, 30);
                 createBigExplosion(boss.x + 30, boss.y - 10, 30);
-                playBossExplosionSound();
-                score += 200;
-                boss = null;
-                enemies = [];
-                bullets = [];
-                // Переходим к следующему циклу через FSM
-                if (gameLevel < 4) {
-                    levelFsmState = LEVEL_FSM_STATES.FADE_TO_BLACK;
-                    levelFsmPendingLevel = gameLevel + 1;
-                    levelFsmOverlayAlpha = 0;
-                } else {
-                    gameWon = true;
-                    playWinMusic();
-                    setTimeout(() => {
-                        if (gameRunning && !gamePaused) gameOver();
-                    }, 2000);
-                }
+                killBoss();
             }
                         break;
                     }
                 }
             }
 
-            if ((activeWeapon === 'beam' || activeWeapon === 'neon') && keys['Space'] && boss && boss.flashTimer <= 0) {
-                const beamDmg = activeWeapon === 'neon' ? 2 : 1; // neon наносит двойной урон
+            if ((activeWeapon === 'beam' || activeWeapon === 'neon') && keys['Space'] && boss && !boss.dying && boss.flashTimer <= 0) {
+                const beamDmg = activeWeapon === 'neon' ? 2 : 1;
                 if (Math.abs(boss.x - player.x) < boss.width / 2 + 4) {
                     boss.hp -= beamDmg;
                     boss.flashTimer = 5;
@@ -1649,14 +1761,7 @@ let levelFsmBossSpawned = false;
                         createBigExplosion(boss.x, boss.y, 60);
                         createBigExplosion(boss.x - 30, boss.y + 20, 30);
                         createBigExplosion(boss.x + 30, boss.y - 10, 30);
-                        playBossExplosionSound();
-                        score += 200;
-                        boss = null;
-                        gameWon = true;
-                        playWinMusic();
-                        setTimeout(() => {
-                            if (gameRunning && !gamePaused) gameOver();
-                        }, 2000);
+                        killBoss();
                     }
                 }
             }
@@ -1722,6 +1827,20 @@ let levelFsmBossSpawned = false;
                 }
             }
 
+            // Enemy bullet collision with player
+            if (player.invincible <= 0) {
+                for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                    const b = enemyBullets[i];
+                    if (Math.abs(player.x - b.x) < 18 && Math.abs(player.y - b.y) < 18) {
+                        enemyBullets.splice(i, 1);
+                        playPlayerHitSound();
+                        lives--; player.invincible = 90;
+                        if (lives <= 0) gameOver();
+                        break;
+                    }
+                }
+            }
+
             for (let i = powerups.length - 1; i >= 0; i--) {
                 const p = powerups[i];
                 const bob = Math.sin(frameCount * 0.08) * 3;
@@ -1755,7 +1874,7 @@ let levelFsmBossSpawned = false;
             gameLevel = 1;
             levelAnnounceName = 'Уровень 1';
             prevBgLevel = 1;
-            bullets = []; enemies = []; particles = []; powerups = []; bossBombs = [];
+            bullets = []; enemies = []; particles = []; powerups = []; bossBombs = []; enemyBullets = [];
             activeBombExplosions = [];
             activeWeapon = 'normal'; weaponTimer = 0;
             beamHitCooldowns = new Map();
@@ -1805,6 +1924,7 @@ let levelFsmBossSpawned = false;
             if (!gameRunning || gamePaused) return;
             gamePaused = true;
             if (bossMusic) bossMusic.pause();
+            stopBossBgm();
             pauseLevelBgm(gameLevel);
             showScreen(pauseScreen);
         }
@@ -1812,7 +1932,7 @@ let levelFsmBossSpawned = false;
             if (!gamePaused) return;
             gamePaused = false;
             if (boss) {
-                if (bossMusic && settings.sound === 'on') bossMusic.play().catch(() => {});
+                playBossMusic();
             } else {
                 resumeLevelBgm(gameLevel);
             }
@@ -1824,7 +1944,7 @@ let levelFsmBossSpawned = false;
             gameRunning = false; gamePaused = false; gameControlsEnabled = false;
             if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
             if (foneMusic) { foneMusic.pause(); foneMusic.currentTime = 0; }
-            stopLevelBgm();
+            stopLevelBgm(); stopBossBgm();
             uiEl.classList.add('hidden');
             resizeCanvas(settings.mapSize);
             ctx.fillStyle = '#16213e'; ctx.fillRect(0, 0, W, H);
@@ -1836,7 +1956,7 @@ let levelFsmBossSpawned = false;
             gameRunning = false; gameControlsEnabled = false;
             if (bossMusic) { bossMusic.pause(); bossMusic.currentTime = 0; }
             if (foneMusic) { foneMusic.pause(); foneMusic.currentTime = 0; }
-            stopLevelBgm();
+            stopLevelBgm(); stopBossBgm();
             if (boss) {
                 playFailMusic();
             }
@@ -1865,6 +1985,7 @@ let levelFsmBossSpawned = false;
                 updatePlayer(); updateBullets(); updateEnemies();
             }
             updateParticles(); updatePowerups(); updateBossBombs();
+            updateBossDying();
             if (levelState !== LEVEL_STATES.LEVEL_TRANSITION) {
                 checkCollisions();
             }
@@ -1876,6 +1997,14 @@ let levelFsmBossSpawned = false;
             if (gameControlsEnabled) {
                 bullets.forEach(drawBullet);
             }
+            // Draw enemy bullets (level 3)
+            enemyBullets.forEach(b => {
+                ctx.save(); ctx.translate(b.x, b.y);
+                ctx.fillStyle = b.color;
+                ctx.shadowColor = b.color; ctx.shadowBlur = 8;
+                ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0; ctx.restore();
+            });
             enemies.forEach(drawEnemy);
             powerups.forEach(drawPowerup);
             bossBombs.forEach(drawBomb);
@@ -1955,89 +2084,183 @@ let levelFsmBossSpawned = false;
             if (enemySpawnFrameCount % 600 === 0) spawnPowerup();
         }
 
+        function _bgColor(level) {
+            if (level === 2) return '#1a4a18';
+            if (level === 3) return '#b89040';
+            if (level === 4) return '#060010';
+            return '#16213e';
+        }
+
         function drawBackground() {
-            if (levelState === LEVEL_STATES.LEVEL_TRANSITION) {
-                const progress = 1 - (transitionTimer / TRANSITION_FRAMES.SHOW_LEVEL_TEXT);
-                if (progress < 0.5) {
-                    ctx.fillStyle = '#16213e';
-                    if (prevBgLevel === 2) {
-                        ctx.fillStyle = '#2d5a27';
-                    } else if (prevBgLevel === 3) {
-                        ctx.fillStyle = '#c4a35a';
-                    }
-                } else {
-                    ctx.fillStyle = '#16213e';
-                    if (gameLevel === 2) {
-                        ctx.fillStyle = '#2d5a27';
-                    } else if (gameLevel === 3) {
-                        ctx.fillStyle = '#c4a35a';
-                    }
-                }
-                ctx.fillRect(0, 0, W, H);
-                
-                if (gameLevel >= 2 || prevBgLevel >= 2) {
-                    drawGrass();
-                }
-                if (gameLevel >= 3 || prevBgLevel >= 3) {
-                    drawSand();
-                }
-            } else {
-                if (gameLevel === 2) {
-                    ctx.fillStyle = '#2d5a27';
-                    ctx.fillRect(0, 0, W, H);
-                    drawGrass();
-                } else if (gameLevel >= 3) {
-                    ctx.fillStyle = '#c4a35a';
-                    ctx.fillRect(0, 0, W, H);
-                    drawSand();
-                } else {
-                    ctx.fillStyle = '#16213e';
-                    ctx.fillRect(0, 0, W, H);
-                }
-            }
+            const lvl = (levelState === LEVEL_STATES.LEVEL_TRANSITION) ? prevBgLevel : gameLevel;
+            ctx.fillStyle = _bgColor(lvl);
+            ctx.fillRect(0, 0, W, H);
+            if (lvl === 2) { drawLevel2Bg(); }
+            else if (lvl === 3) { drawLevel3Bg(); }
+            else if (lvl === 4) { drawLevel4Bg(); }
         }
 
-        function drawGrass() {
-            ctx.fillStyle = '#3d7a37';
+        // ── Level 2: green field with flying bushes ──
+        function drawLevel2Bg() {
+            // Gradient sky stripe at top
+            const grad = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+            grad.addColorStop(0, '#3a8f50'); grad.addColorStop(1, '#1a4a18');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H * 0.5);
+
+            // Scrolling distant trees (silhouettes)
+            ctx.fillStyle = '#14381200';
+            for (let i = 0; i < 12; i++) {
+                const tx = ((i * 83 + frameCount * 0.15) % (W + 60)) - 30;
+                const ty = H * 0.35 + Math.sin(i * 1.7) * 20;
+                const th = 60 + (i % 3) * 20;
+                ctx.fillStyle = 'rgba(15,50,15,0.5)';
+                // trunk
+                ctx.fillRect(tx - 4, ty, 8, th * 0.5);
+                // crown
+                ctx.beginPath(); ctx.arc(tx, ty, th * 0.4, 0, Math.PI * 2); ctx.fill();
+            }
+
+            // Flying bushes across the screen
+            for (let i = 0; i < 10; i++) {
+                const speed = 0.6 + (i % 3) * 0.3;
+                const bx = ((i * 137 + frameCount * speed) % (W + 80)) - 40;
+                const by = 60 + (i * 71) % (H - 160);
+                const scale = 0.5 + (i % 3) * 0.3;
+                ctx.save(); ctx.translate(bx, by); ctx.scale(scale, scale);
+                // bush body
+                ctx.fillStyle = '#2a6e22';
+                ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#3a8e30';
+                ctx.beginPath(); ctx.arc(-10, -5, 12, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(10, -5, 12, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(0, -14, 10, 0, Math.PI*2); ctx.fill();
+                // leaves highlight
+                ctx.fillStyle = '#50bb40';
+                ctx.beginPath(); ctx.arc(-3, -8, 5, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+
+            // Ground strip with grass tufts
+            const gGrad = ctx.createLinearGradient(0, H*0.75, 0, H);
+            gGrad.addColorStop(0, '#1a5c18'); gGrad.addColorStop(1, '#0e3a0c');
+            ctx.fillStyle = gGrad; ctx.fillRect(0, H*0.75, W, H*0.25);
+            ctx.fillStyle = '#4aaa3a';
             for (let i = 0; i < 30; i++) {
-                const gx = (i * 47 + frameCount * 0.5) % W;
-                const gy = H - 30 + Math.sin(i * 1.5) * 10;
-                ctx.beginPath();
-                ctx.moveTo(gx, gy + 15);
-                ctx.lineTo(gx - 6, gy + 5);
-                ctx.lineTo(gx + 6, gy + 5);
-                ctx.closePath();
-                ctx.fill();
-            }
-            ctx.fillStyle = '#4a9a47';
-            for (let i = 0; i < 40; i++) {
-                const gx = (i * 31 + frameCount * 0.3) % W;
-                const gy = H - 20 + Math.sin(i * 2.1) * 8;
-                ctx.beginPath();
-                ctx.moveTo(gx, gy + 10);
-                ctx.lineTo(gx - 4, gy + 3);
-                ctx.lineTo(gx + 4, gy + 3);
-                ctx.closePath();
-                ctx.fill();
+                const gx = (i * 47 + frameCount * 0.4) % W;
+                const gy = H * 0.76;
+                ctx.beginPath(); ctx.moveTo(gx, gy+14); ctx.lineTo(gx-5,gy+5); ctx.lineTo(gx+5,gy+5); ctx.closePath(); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(gx+12, gy+10); ctx.lineTo(gx+7,gy+3); ctx.lineTo(gx+17,gy+3); ctx.closePath(); ctx.fill();
             }
         }
 
-        function drawSand() {
-            ctx.fillStyle = '#d4b36a';
-            for (let i = 0; i < 50; i++) {
-                const sx = (i * 73) % W;
-                const sy = H - 40 + (i % 5) * 15;
+        // ── Level 3: desert with scrolling rocks and dunes ──
+        function drawLevel3Bg() {
+            // Sky gradient
+            const grad = ctx.createLinearGradient(0, 0, 0, H*0.45);
+            grad.addColorStop(0, '#c8780a'); grad.addColorStop(1, '#b89040');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H*0.45);
+
+            // Distant dunes
+            ctx.fillStyle = '#d4a04a';
+            for (let i = 0; i < 5; i++) {
+                const dx = ((i * 120 + frameCount * 0.08) % (W + 160)) - 80;
                 ctx.beginPath();
-                ctx.ellipse(sx, sy, 8 + (i % 3) * 3, 4 + (i % 2) * 2, 0, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.moveTo(dx - 80, H*0.55);
+                ctx.quadraticCurveTo(dx, H*0.3, dx + 80, H*0.55);
+                ctx.closePath(); ctx.fill();
             }
-            ctx.fillStyle = '#b4934a';
-            for (let i = 0; i < 35; i++) {
-                const sx = (i * 97 + 30) % W;
-                const sy = H - 60 + (i % 4) * 20;
+
+            // Rolling rocks (mid-layer)
+            const rockColors = ['#7a6040','#8a7050','#5a4a30','#6a5838'];
+            for (let i = 0; i < 8; i++) {
+                const speed = 0.3 + (i % 3) * 0.15;
+                const rx = ((i * 97 + frameCount * speed) % (W + 100)) - 50;
+                const ry = H * 0.45 + (i * 43) % (H * 0.35);
+                const rw = 22 + (i % 3) * 14;
+                const rh = 14 + (i % 2) * 10;
+                ctx.fillStyle = rockColors[i % rockColors.length];
+                ctx.beginPath(); ctx.ellipse(rx, ry, rw, rh, (i * 0.4) % Math.PI, 0, Math.PI*2); ctx.fill();
+                // rock highlight
+                ctx.fillStyle = 'rgba(255,220,150,0.2)';
+                ctx.beginPath(); ctx.ellipse(rx - rw*0.2, ry - rh*0.25, rw*0.35, rh*0.3, 0, 0, Math.PI*2); ctx.fill();
+            }
+
+            // Ground sand
+            const sandGrad = ctx.createLinearGradient(0, H*0.75, 0, H);
+            sandGrad.addColorStop(0, '#c8a040'); sandGrad.addColorStop(1, '#a07828');
+            ctx.fillStyle = sandGrad; ctx.fillRect(0, H*0.75, W, H*0.25);
+
+            // Sand ripples
+            ctx.strokeStyle = 'rgba(200,170,80,0.4)'; ctx.lineWidth = 1;
+            for (let i = 0; i < 8; i++) {
+                const sy = H*0.77 + i * 12;
+                const offset = (frameCount * 0.2 + i * 17) % 40;
                 ctx.beginPath();
-                ctx.ellipse(sx, sy, 6 + (i % 2) * 4, 3 + (i % 3) * 2, 0, 0, Math.PI * 2);
-                ctx.fill();
+                for (let x = -offset; x < W; x += 40) {
+                    ctx.moveTo(x, sy); ctx.lineTo(x + 20, sy + 3);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // ── Level 4: cyber dimension with neon grid ──
+        function drawLevel4Bg() {
+            // Deep space background
+            ctx.fillStyle = '#060010'; ctx.fillRect(0, 0, W, H);
+
+            // Perspective grid lines (horizontal)
+            const vanishY = H * 0.45;
+            const fc = frameCount;
+            ctx.lineWidth = 1;
+            // Horizontal scrolling lines
+            for (let i = 0; i < 14; i++) {
+                const t = ((i / 14) + (fc * 0.005)) % 1;
+                const y = vanishY + (H - vanishY) * Math.pow(t, 1.5);
+                const alpha = Math.min(1, t * 2) * 0.5;
+                const spread = (y - vanishY) / (H - vanishY);
+                ctx.strokeStyle = `rgba(0,255,200,${alpha})`;
+                ctx.shadowColor = '#00ffcc'; ctx.shadowBlur = 4;
+                ctx.beginPath(); ctx.moveTo(W*0.5 - W*0.6*spread, y); ctx.lineTo(W*0.5 + W*0.6*spread, y); ctx.stroke();
+            }
+            // Vertical perspective lines
+            for (let i = -5; i <= 5; i++) {
+                const alpha = Math.max(0, 0.4 - Math.abs(i) * 0.07);
+                ctx.strokeStyle = `rgba(160,0,255,${alpha})`;
+                ctx.shadowColor = '#aa00ff'; ctx.shadowBlur = 5;
+                ctx.beginPath();
+                ctx.moveTo(W*0.5, vanishY);
+                ctx.lineTo(W*0.5 + i * W * 0.13, H);
+                ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
+
+            // Neon data streams (vertical particles)
+            for (let i = 0; i < 18; i++) {
+                const px = (i * 73 + fc * 0.5) % W; // WRONG: should be column-based
+                const streamX = (i * (W/18) + fc * (0.3 + i*0.02)) % W;
+                const py1 = (fc * 2 + i * 60) % (H + 40) - 20;
+                const len = 15 + (i % 4) * 12;
+                const col = i % 2 === 0 ? `rgba(0,255,200,0.6)` : `rgba(200,0,255,0.5)`;
+                const grad2 = ctx.createLinearGradient(streamX, py1, streamX, py1 + len);
+                grad2.addColorStop(0, 'transparent'); grad2.addColorStop(1, col);
+                ctx.fillStyle = grad2;
+                ctx.fillRect(streamX, py1, 2, len);
+            }
+
+            // Neon hex cells at top
+            ctx.strokeStyle = 'rgba(0,200,255,0.12)'; ctx.lineWidth = 1; ctx.shadowBlur = 0;
+            const hexR = 28;
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < Math.ceil(W / (hexR * 1.8)) + 1; col++) {
+                    const hx = col * hexR * 1.73 + (row % 2) * hexR * 0.87 - 20;
+                    const hy = row * hexR * 1.5 - hexR;
+                    ctx.beginPath();
+                    for (let k = 0; k < 6; k++) {
+                        const a = k / 6 * Math.PI * 2 - Math.PI/6;
+                        ctx.lineTo(hx + Math.cos(a)*hexR, hy + Math.sin(a)*hexR);
+                    }
+                    ctx.closePath(); ctx.stroke();
+                }
             }
         }
 
@@ -2119,7 +2342,7 @@ let levelFsmBossSpawned = false;
             // Reset player position/state
             initStars(); resetPlayer();
             // Clear per-level entities
-            bullets = []; enemies = []; particles = []; powerups = []; bossBombs = [];
+            bullets = []; enemies = []; particles = []; powerups = []; bossBombs = []; enemyBullets = [];
             activeBombExplosions = [];
             // Reset boss related data
             boss = null; bossAnnounceTimer = 0;
