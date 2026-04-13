@@ -15,11 +15,26 @@
             overflow: hidden;
             font-family: 'Segoe UI', sans-serif;
         }
-        #gameContainer { position: relative; }
+        #gameContainer {
+            position: relative;
+        }
         canvas {
             border: 2px solid #e94560;
             border-radius: 8px;
             box-shadow: 0 0 30px rgba(233, 69, 96, 0.3);
+            display: block;
+            max-width: 100vw;
+            max-height: calc(100vh - 110px);
+            /* Scale canvas visually while keeping internal resolution */
+            width: auto;
+            height: auto;
+        }
+        @media (max-width: 500px) {
+            body { align-items: flex-start; padding-top: 5px; }
+            canvas {
+                width: 100vw;
+                height: auto;
+            }
         }
         #ui {
             position: absolute;
@@ -171,6 +186,47 @@
             border: 1px solid rgba(233, 69, 96, 0.3);
             font-family: monospace;
         }
+
+        /* Mobile touch controls */
+        #touchControls {
+            display: none;
+            position: absolute;
+            bottom: 10px;
+            left: 0; right: 0;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 10px;
+            z-index: 20;
+            pointer-events: none;
+        }
+        #touchControls.visible { display: flex; }
+        .touch-btn {
+            width: 80px; height: 80px;
+            background: rgba(233, 69, 96, 0.25);
+            border: 2px solid rgba(233, 69, 96, 0.6);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 32px;
+            color: rgba(255,255,255,0.85);
+            user-select: none;
+            pointer-events: all;
+            touch-action: none;
+            transition: background 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .touch-btn:active, .touch-btn.pressed {
+            background: rgba(233, 69, 96, 0.6);
+        }
+        #touchFire {
+            width: 90px; height: 90px;
+            background: rgba(233, 69, 96, 0.35);
+            border-color: rgba(233, 69, 96, 0.9);
+            font-size: 36px;
+        }
+        @media (pointer: coarse) {
+            #touchControls { display: flex; }
+            .controls-info { display: none; }
+        }
     </style>
 </head>
 <body>
@@ -179,6 +235,12 @@
         <div id="ui" class="hidden">
             <span id="scoreDisplay">Очки: 0</span>
             <span id="livesDisplay">Жизни: ❤❤❤</span>
+        </div>
+
+        <div id="touchControls">
+            <div class="touch-btn" id="touchLeft">&#8592;</div>
+            <div class="touch-btn" id="touchFire">&#128293;</div>
+            <div class="touch-btn" id="touchRight">&#8594;</div>
         </div>
 
         <div id="mainMenu" class="screen">
@@ -1868,6 +1930,35 @@ let levelFsmBossSpawned = false;
             if (e.code === 'Escape' && gameRunning) { gamePaused ? resumeGame() : pauseGame(); }
         });
         document.addEventListener('keyup', e => keys[e.code] = false);
+
+        // Touch controls for mobile
+        function bindTouchBtn(id, keyCode) {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.addEventListener('touchstart', e => { e.preventDefault(); keys[keyCode] = true; btn.classList.add('pressed'); }, { passive: false });
+            btn.addEventListener('touchend', e => { e.preventDefault(); keys[keyCode] = false; btn.classList.remove('pressed'); }, { passive: false });
+            btn.addEventListener('touchcancel', e => { keys[keyCode] = false; btn.classList.remove('pressed'); });
+        }
+        bindTouchBtn('touchLeft', 'ArrowLeft');
+        bindTouchBtn('touchRight', 'ArrowRight');
+        bindTouchBtn('touchFire', 'Space');
+
+        // Show/hide touch controls based on game state
+        function updateTouchControls() {
+            const tc = document.getElementById('touchControls');
+            if (!tc) return;
+            if (gameRunning && !gamePaused) {
+                tc.classList.add('visible');
+            } else {
+                tc.classList.remove('visible');
+            }
+        }
+        // Patch start/pause/resume to update touch controls
+        const _origStartGame = startGame;
+        const _origPauseGame = pauseGame;
+        const _origResumeGame = resumeGame;
+        // We can't reassign const functions easily, so use an observer
+        setInterval(updateTouchControls, 200);
 
         document.getElementById('btnPlay').addEventListener('click', function() {
             const fo = document.getElementById('fadeOverlay');
